@@ -39,12 +39,22 @@ func fetch(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
-	err = locker(key, uuid, 5*time.Second)
-	if err != nil {
-		w.WriteHeader(404)
+	cancelChan := make(chan struct{})
+	resChan, tick := locker(key, uuid, 5*time.Second, cancelChan), time.Tick(5*time.Second)
+	select {
+	case resp := <-resChan:
+		if resp != nil {
+			w.WriteHeader(500)
+			return
+		}
+		defer unlock(key, uuid)
+		break
+	case <-tick:
+		log.Println("cancel")
+		cancelChan <- struct{}{}
+		w.WriteHeader(504)
 		return
 	}
-	defer unlock(key, uuid)
 	value, err := redisClient.Get(commodity).Result()
 	if err != nil {
 		log.Fatal("key not exist:", key, err)

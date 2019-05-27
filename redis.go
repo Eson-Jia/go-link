@@ -1,29 +1,34 @@
 package main
 
 import (
-	"errors"
 	"log"
 	"time"
 )
 
-func locker(key, token string, expire time.Duration) (err error) {
-	const maxCount = 5
-	count := 0
-	for {
-		setResult, err := redisClient.SetNX(key, token, expire).Result()
-		if err != nil {
-			return err
+func locker(key, token string, expire time.Duration, cancelCh <-chan struct{}) (reponseChan chan error) {
+	ticker := time.Tick(10 * time.Second)
+	reponseChan = make(chan error)
+	go func() {
+		for {
+			setResult, err := redisClient.SetNX(key, token, expire).Result()
+			if err != nil {
+				reponseChan <- err
+				break
+			}
+			if setResult {
+				reponseChan <- nil
+				break
+			}
+			select {
+			case <-ticker:
+				log.Println("tick")
+			case <-cancelCh:
+				close(reponseChan)
+				return
+			}
 		}
-		if setResult {
-			log.Println("lock--->")
-			break
-		}
-		if count++; count > maxCount {
-			return errors.New("timeout")
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	return nil
+	}()
+	return reponseChan
 }
 
 func unlock(key, token string) (int64, error) {
