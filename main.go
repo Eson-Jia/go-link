@@ -4,10 +4,11 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/go-redis/redis"
-	uuid "github.com/satori/go.uuid"
+	"github.com/satori/go.uuid"
 )
 
 func help(w http.ResponseWriter, r *http.Request) {
@@ -25,47 +26,39 @@ func init() {
 	})
 }
 
-func locker(key, token string, expire time.Duration) (got bool, err error) {
-	setResult, err := redisClient.SetNX("fetch:locker", token, 5*time.Second).Result()
-	if err != nil {
-		return false, err
-	}
-	return setResult, nil
-}
-
-func unlock(key, token string) (int64, error) {
-	const script = `
-	if redis.call("get",KEYS[1]) == ARGV[1]
-	then
-		return redis.call("del",KEYS[1])
-	else
-		return 0
-	end
-	`
-	res, err := redisClient.Eval(script, []string{key}, token).Result()
-	if err != nil {
-		return 0, err
-	}
-	return res.(int64), nil
-}
-
 func fetch(w http.ResponseWriter, r *http.Request) {
 	err := r.ParseForm()
+	if err != nil {
+		w.WriteHeader(400)
+		return
+	}
 	id := r.FormValue("id")
-	uuid, err := uuid.NewV4()
+	uuid := fmt.Sprint(uuid.Must(uuid.NewV4()))
 	commodity := fmt.Sprintf("commodity:%v", id)
 	key := fmt.Sprintf("fetchlocker:%v", id)
 	if err != nil {
 		return
 	}
-	got, err := locker(key, string(uuid[:]), 5*time.Second)
+	err = locker(key, uuid, 5*time.Second)
+	if err != nil {
+		w.WriteHeader(404)
+		return
+	}
+	defer unlock(key, uuid)
+	value, err := redisClient.Get(commodity).Result()
+	if err != nil {
+		log.Fatal("key not exist:", key, err)
+	}
+	intValue, err := strconv.Atoi(value)
 	if err != nil {
 		log.Fatal(err)
 	}
-	if got {
-		defer unlock(key, string(uuid[:]))
-		log.Println(redisClient.Get(commodity).Result())
+	intValue--
+	setRes, err := redisClient.Set(commodity, intValue, 0).Result()
+	if err != nil {
+		log.Fatal(err)
 	}
+	log.Println(setRes)
 }
 
 func main() {
@@ -75,6 +68,7 @@ func main() {
 	})
 
 	http.HandleFunc("/fetch", fetch)
+	http.HandleFunc("/redpacket", redPacket)
 
 	http.HandleFunc("/help", help)
 	http.ListenAndServe(":10010", nil)
