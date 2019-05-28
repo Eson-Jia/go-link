@@ -40,7 +40,7 @@ func fetch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cancelChan := make(chan struct{})
-	resChan, tick := locker(key, uuid, 5*time.Second, cancelChan), time.Tick(5*time.Second)
+	resChan, tick := locker(key, uuid, 5*time.Second, cancelChan), time.Tick(10*time.Second)
 	select {
 	case resp := <-resChan:
 		if resp != nil {
@@ -81,5 +81,5 @@ func main() {
 	http.HandleFunc("/redpacket", redPacket)
 
 	http.HandleFunc("/help", help)
-	http.ListenAndServe(":10010", nil)
+	log.Fatal(http.ListenAndServe(":10010", nil))
 }

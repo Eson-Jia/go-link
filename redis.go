@@ -6,12 +6,13 @@ import (
 )
 
 func locker(key, token string, expire time.Duration, cancelCh <-chan struct{}) (reponseChan chan error) {
-	ticker := time.Tick(10 * time.Second)
+	ticker := time.Tick(1 * time.Second)
 	reponseChan = make(chan error)
 	go func() {
 		for {
 			setResult, err := redisClient.SetNX(key, token, expire).Result()
 			if err != nil {
+				log.Fatal(err)
 				reponseChan <- err
 				break
 			}
